@@ -1,0 +1,229 @@
+<?php
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path' => '/',
+    'domain' => '',
+    'secure' => false,
+    'httponly' => true,
+    'samesite' => 'Strict'
+]);
+session_start();
+
+function db() {
+    $db = new PDO('sqlite:esiancargo.db');
+    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    return $db;
+}
+
+function kullaniciVarMi($email) {
+    $db = db();
+    $stmt = $db->prepare("SELECT id FROM kullanicilar WHERE email = ?");
+    $stmt->execute([$email]);
+    return $stmt->fetch() ? true : false;
+}
+
+function kullaniciEkle($ad, $email, $sifre) {
+    $db = db();
+    $stmt = $db->prepare("INSERT INTO kullanicilar (ad, email, sifre) VALUES (?, ?, ?)");
+    $stmt->execute([$ad, $email, password_hash($sifre, PASSWORD_DEFAULT)]);
+}
+
+function kullaniciBul($email) {
+    $db = db();
+    $stmt = $db->prepare("SELECT * FROM kullanicilar WHERE email = ?");
+    $stmt->execute([$email]);
+    return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+function kullaniciBulId($id) {
+    $db = db();
+    $stmt = $db->prepare("SELECT * FROM kullanicilar WHERE id = ?");
+    $stmt->execute([$id]);
+    return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+function yatirimEkle($kullanici_id, $kripto, $miktar) {
+    $db = db();
+    $stmt = $db->prepare("INSERT INTO yatirimlar (kullanici_id, kripto, miktar) VALUES (?, ?, ?)");
+    $stmt->execute([$kullanici_id, $kripto, $miktar]);
+}
+
+function kullaniciYatirimlari($kullanici_id) {
+    $db = db();
+    $stmt = $db->prepare("SELECT * FROM yatirimlar WHERE kullanici_id = ? ORDER BY tarih DESC");
+    $stmt->execute([$kullanici_id]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function tumYatirimlar() {
+    $db = db();
+    $stmt = $db->query("SELECT y.*, k.ad FROM yatirimlar y JOIN kullanicilar k ON y.kullanici_id = k.id ORDER BY y.tarih DESC");
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function toplamHavuz() {
+    $db = db();
+    $stmt = $db->query("SELECT SUM(miktar) as toplam FROM yatirimlar WHERE durum = 'onaylandi'");
+    return $stmt->fetch(PDO::FETCH_ASSOC)['toplam'] ?? 0;
+}
+
+function logYaz($mesaj) {
+    $db = db();
+    $stmt = $db->prepare("INSERT INTO loglar (mesaj) VALUES (?)");
+    $stmt->execute([$mesaj]);
+}
+
+function csrfToken() {
+    if (empty($_SESSION['csrf'])) {
+        $_SESSION['csrf'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf'];
+}
+
+function csrfDogrula($token) {
+    return isset($_SESSION['csrf']) && hash_equals($_SESSION['csrf'], $token);
+}
+
+function rateLimit($ip, $limit = 5, $sure = 60) {
+    $dosya = 'rate_limit.json';
+    $veri = file_exists($dosya) ? json_decode(file_get_contents($dosya), true) : [];
+    $simdi = time();
+    if (!isset($veri[$ip])) $veri[$ip] = [];
+    $veri[$ip] = array_filter($veri[$ip], function($t) use ($simdi, $sure) {
+        return $t > $simdi - $sure;
+    });
+    if (count($veri[$ip]) >= $limit) {
+        return false;
+    }
+    $veri[$ip][] = $simdi;
+    file_put_contents($dosya, json_encode($veri));
+    return true;
+}
+
+function sifrele($veri, $anahtar = 'esiancargo_gizli_anahtar') {
+    $iv = openssl_random_pseudo_bytes(16);
+    $sifreli = openssl_encrypt($veri, 'AES-256-CBC', $anahtar, 0, $iv);
+    return base64_encode($iv . $sifreli);
+}
+
+function sifreCoz($veri, $anahtar = 'esiancargo_gizli_anahtar') {
+    $veri = base64_decode($veri);
+    $iv = substr($veri, 0, 16);
+    $sifreli = substr($veri, 16);
+    return openssl_decrypt($sifreli, 'AES-256-CBC', $anahtar, 0, $iv);
+}?>
+function dil($anahtar) {
+    $diller = [
+        'tr' => [
+            'slogan' => 'Gemilere yatırım yap, kâr ortaklığıyla kazan.',
+            'yatirim_yap' => 'Yatırım Yap',
+            'anasayfa' => 'Ana Sayfa',
+            'yatirim' => 'Yatırım',
+            'panel' => 'Panel',
+            'blog' => 'Blog',
+            'sss' => 'SSS',
+            'iletisim' => 'İletişim',
+            'giris' => 'Giriş',
+            'kayit' => 'Kayıt',
+            'cikis' => 'Çıkış',
+        ],
+        'en' => [
+            'slogan' => 'Invest in ships, earn with profit sharing.',
+            'yatirim_yap' => 'Invest Now',
+            'anasayfa' => 'Home',
+            'yatirim' => 'Investment',
+            'panel' => 'Panel',
+            'blog' => 'Blog',
+            'sss' => 'FAQ',
+            'iletisim' => 'Contact',
+            'giris' => 'Login',
+            'kayit' => 'Register',
+            'cikis' => 'Logout',
+        ],
+        'de' => [
+            'slogan' => 'Investieren Sie in Schiffe, verdienen Sie mit Gewinnbeteiligung.',
+            'yatirim_yap' => 'Jetzt investieren',
+            'anasayfa' => 'Startseite',
+            'yatirim' => 'Investition',
+            'panel' => 'Panel',
+            'blog' => 'Blog',
+            'sss' => 'FAQ',
+            'iletisim' => 'Kontakt',
+            'giris' => 'Anmelden',
+            'kayit' => 'Registrieren',
+            'cikis' => 'Abmelden',
+        ],
+        'ru' => [
+            'slogan' => 'Инвестируйте в корабли, зарабатывайте на разделении прибыли.',
+            'yatirim_yap' => 'Инвестировать',
+            'anasayfa' => 'Главная',
+            'yatirim' => 'Инвестиции',
+            'panel' => 'Панель',
+            'blog' => 'Блог',
+            'sss' => 'ЧаВо',
+            'iletisim' => 'Контакт',
+            'giris' => 'Вход',
+            'kayit' => 'Регистрация',
+            'cikis' => 'Выход',
+        ],
+        'ar' => [
+            'slogan' => 'استثمر في السفن واربح من خلال مشاركة الأرباح.',
+            'yatirim_yap' => 'استثمر الآن',
+            'anasayfa' => 'الرئيسية',
+            'yatirim' => 'استثمار',
+            'panel' => 'لوحة التحكم',
+            'blog' => 'مدونة',
+            'sss' => 'الأسئلة الشائعة',
+            'iletisim' => 'اتصل بنا',
+            'giris' => 'تسجيل الدخول',
+            'kayit' => 'تسجيل',
+            'cikis' => 'خروج',
+        ],
+    ];
+    $dil = $_GET['lang'] ?? 'tr';
+    return $diller[$dil][$anahtar] ?? $diller['tr'][$anahtar] ?? $anahtar;
+}
+function dil($anahtar) {
+    $diller = [
+        'tr' => [
+            'slogan' => 'Gemilere yatD1rD1m yap, kC"r ortaklD1D            'yatirim_yap' => 'YatD1rD1m Yap',
+            'anasayfa' => 'Ana Sayfa',
+            'yatirim' => 'YatD1rD1m',
+            'panel' => 'Panel',
+            'blog' => 'Blog',
+            'sss' => 'SSS',
+            'iletisim' => 'D0letiE            'giris' => 'GiriE            'kayit' => 'KayD1t',
+            'cikis' => 'C        ],
+        'en' => [
+            'slogan' => 'Invest in ships, earn with profit sharing.',
+            'yatirim_yap' => 'Invest Now',
+            'anasayfa' => 'Home',
+            'yatirim' => 'Investment',
+            'panel' => 'Panel',
+            'blog' => 'Blog',
+            'sss' => 'FAQ',
+            'iletisim' => 'Contact',
+            'giris' => 'Login',
+            'kayit' => 'Register',
+            'cikis' => 'Logout',
+        ],
+        'de' => [
+            'slogan' => 'Investieren Sie in Schiffe, verdienen Sie mit Gewinnbeteiligung.',
+            'yatirim_yap' => 'Jetzt investieren',
+            'anasayfa' => 'Startseite',
+            'yatirim' => 'Investition',
+            'panel' => 'Panel',
+            'blog' => 'Blog',
+            'sss' => 'FAQ',
+            'iletisim' => 'Kontakt',
+            'giris' => 'Anmelden',
+            'kayit' => 'Registrieren',
+            'cikis' => 'Abmelden',
+        ],
+        'ru' => [
+            'slogan' => 'PP9P5 P2 P:P>QQ
+P0P1P;P8, P7P0Q
+P2P0P9P5 P=P0 QQ
+P0P7P4P5P;P5P=P8P8 P?Q
+P;P8.',
+            'yatirim_yap' => 'P
